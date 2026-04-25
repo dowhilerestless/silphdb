@@ -1,0 +1,25 @@
+services:
+  silphdb-instance:
+    image: postgres:16-alpine
+    container_name: silphdb_container
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=silph_admin
+      - POSTGRES_PASSWORD=pallet_town_secret
+      - POSTGRES_DB=silphdb
+    ports:
+      - "5444:5432"
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - silph_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U silph_admin -d silphdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  silph_network:
+    driver: bridge
