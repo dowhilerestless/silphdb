@@ -19,6 +19,19 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+  silphdb-pgadmin:
+    image: dpage/pgadmin4
+    container_name: silphdb_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@silph.co
+      PGADMIN_DEFAULT_PASSWORD: archivist_secret
+    ports:
+      - "5050:80"
+    networks:
+      - silph_network
+    depends_on:
+      - silphdb-instance
 
 networks:
   silph_network:

@@ -1,3 +1,11 @@
+-- 0. Sets
+CREATE TABLE sets (
+    set_id VARCHAR(50) PRIMARY KEY,
+    set_name VARCHAR(100) NOT NULL,
+    series VARCHAR(50),
+    release_date DATE
+);
+
 -- 1. Pokedex
 CREATE TABLE pokedex (
     pokedex_number INT PRIMARY KEY,
@@ -11,11 +19,11 @@ CREATE TABLE pokedex (
 CREATE TABLE cards (
     definition_id VARCHAR(50) PRIMARY KEY,
     pokedex_number INT REFERENCES pokedex(pokedex_number),
-    set_name VARCHAR(50),
+    set_id VARCHAR(50) REFERENCES sets(set_id),
     card_number VARCHAR(10),
-    print_run VARCHAR(20), -- e.g., 'Unlimited', 'Shadowless'
-    language VARCHAR(10),  -- e.g., 'EN', 'JP'
-    finish VARCHAR(20),   -- e.g., 'Holo', 'Reverse'
+    print_run VARCHAR(20), 
+    language VARCHAR(10),  
+    finish VARCHAR(20),   
     artist VARCHAR(100)
 );
 
@@ -23,7 +31,7 @@ CREATE TABLE cards (
 CREATE TABLE acquisition_events (
     event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_date DATE NOT NULL,
-    event_type VARCHAR(20), -- 'Purchase', 'Gift', 'Trade'
+    event_type VARCHAR(20), 
     counterparty VARCHAR(100),
     item_cost DECIMAL(10, 2) DEFAULT 0.00,
     shipping_cost DECIMAL(10, 2) DEFAULT 0.00,
@@ -36,15 +44,12 @@ CREATE TABLE assets (
     asset_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     definition_id VARCHAR(50) REFERENCES cards(definition_id),
     event_id UUID REFERENCES acquisition_events(event_id),
-    storage_location VARCHAR(50), -- e.g., 'Binder Slot A1'
+    storage_location VARCHAR(50), 
     is_active_display BOOLEAN DEFAULT TRUE,
-    
-    -- QA Subgrades
     surface_grade INT CHECK (surface_grade BETWEEN 1 AND 10),
     corners_grade INT CHECK (corners_grade BETWEEN 1 AND 10),
     edges_grade INT CHECK (edges_grade BETWEEN 1 AND 10),
     centering_grade INT CHECK (centering_grade BETWEEN 1 AND 10),
-    
     has_swirl BOOLEAN DEFAULT FALSE,
     curator_notes TEXT
 );
