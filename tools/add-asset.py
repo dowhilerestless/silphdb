@@ -7,6 +7,8 @@ from InquirerPy.validator import NumberValidator
 
 load_dotenv()
 
+MAX_NOTE_LENGTH = 120
+
 
 def get_db_connection():
     return psycopg2.connect(
@@ -180,7 +182,12 @@ def main():
                     edges = get_grade("Edges")
                     centering = get_grade("Centering")
 
-                notes = inquirer.text(message="Curator Notes:").execute()
+                # The native InquirerPy validation lock
+                notes = inquirer.text(
+                    message=f"Curator Notes (Max {MAX_NOTE_LENGTH} chars):",
+                    validate=lambda result: len(result) <= MAX_NOTE_LENGTH,
+                    invalid_message=f"Notes must be {MAX_NOTE_LENGTH} characters or fewer."
+                ).execute()
 
                 # --- DATABASE TRANSACTION ---
                 print("\n🚀 Writing to SilphDB...")

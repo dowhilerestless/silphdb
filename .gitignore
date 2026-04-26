@@ -4,3 +4,4 @@ postgres_data/
 __pycache__/
 *.pyc
 context.json
+sprites/

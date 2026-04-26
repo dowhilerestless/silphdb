@@ -5,6 +5,8 @@ from InquirerPy import inquirer
 
 load_dotenv()
 
+MAX_NOTE_LENGTH = 120
+
 
 def get_db_connection():
     return psycopg2.connect(
@@ -84,8 +86,14 @@ def main():
             message="Actively Displayed?", default=active).execute()
         new_swirl = inquirer.confirm(
             message="Has Swirl?", default=swirl).execute()
+
+        # The native InquirerPy validation lock for editing
         new_notes = inquirer.text(
-            message="Curator Notes:", default=safe_str(notes)).execute()
+            message=f"Curator Notes (Max {MAX_NOTE_LENGTH} chars):",
+            default=safe_str(notes),
+            validate=lambda result: len(result) <= MAX_NOTE_LENGTH,
+            invalid_message=f"Notes must be {MAX_NOTE_LENGTH} characters or fewer."
+        ).execute()
 
         print("\n  ↳ Subgrades (1-10). Leave blank to clear/skip.")
 
