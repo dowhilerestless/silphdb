@@ -57,6 +57,14 @@ def seed_pokedex():
             pkmn_id = species_data['id']
             name = entry['name'].capitalize()
 
+            # --- NEW: Extract Evolution Chain ID ---
+            evo_chain_id = None
+            evo_data = species_data.get('evolution_chain')
+            if evo_data:
+                evo_url = evo_data['url']
+                # Extracts the '1' from 'https://pokeapi.co/api/v2/evolution-chain/1/'
+                evo_chain_id = int(evo_url.rstrip('/').split('/')[-1])
+
             variety_url = species_data['varieties'][0]['pokemon']['url']
             pkmn_data = requests.get(variety_url).json()
 
@@ -67,17 +75,19 @@ def seed_pokedex():
 
             gen = get_generation(pkmn_id)
 
+            # --- UPDATED: Insert Statement now includes evolution_chain_id ---
             cur.execute(
                 """
-                INSERT INTO pokedex (pokedex_number, pokemon_name, generation, primary_type, secondary_type)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO pokedex (pokedex_number, pokemon_name, generation, primary_type, secondary_type, evolution_chain_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (pokedex_number) 
                 DO UPDATE SET 
                     pokemon_name = EXCLUDED.pokemon_name,
                     primary_type = EXCLUDED.primary_type,
-                    secondary_type = EXCLUDED.secondary_type;
+                    secondary_type = EXCLUDED.secondary_type,
+                    evolution_chain_id = EXCLUDED.evolution_chain_id;
                 """,
-                (pkmn_id, name, gen, primary, secondary)
+                (pkmn_id, name, gen, primary, secondary, evo_chain_id)
             )
 
             if index % 100 == 0:

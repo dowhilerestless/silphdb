@@ -33,16 +33,22 @@ def seed_sets():
             series = s['series']
             release_date = s.get('releaseDate', '1999/01/01').replace('/', '-')
 
+            # --- NEW: Extracting card counts ---
+            printed_total = s.get('printedTotal', 0)
+            total_cards = s.get('total', 0)
+
             cur.execute(
                 """
-                INSERT INTO sets (set_id, set_name, series, release_date)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO sets (set_id, set_name, series, release_date, printed_total, total_cards)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (set_id) DO UPDATE SET 
                     set_name = EXCLUDED.set_name,
                     series = EXCLUDED.series,
-                    release_date = EXCLUDED.release_date;
+                    release_date = EXCLUDED.release_date,
+                    printed_total = EXCLUDED.printed_total,
+                    total_cards = EXCLUDED.total_cards;
                 """,
-                (set_id, name, series, release_date)
+                (set_id, name, series, release_date, printed_total, total_cards)
             )
 
         conn.commit()
