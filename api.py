@@ -543,12 +543,21 @@ def get_archetypes(binder_id: str, mode: str = "BINDER"):
         """, (max_dex, allowed_sets))
 
         condition_data = cur.fetchall()
-        cond_weights = {'M': 10, 'NM': 8, 'LP': 6,
+        cond_weights = {'NM+': 10, 'NM': 8, 'LP': 6,
                         'MP': 4, 'HP': 2, 'DMG': 1, 'UKN': 5}
+
+        replacement_conditions = {'LP', 'MP', 'HP', 'DMG'}
+        needing_replacement_count = 0
 
         total_score = 0
         scored_cards = 0
         for row in condition_data:
+            if row['grading_status'] == 'Graded' and row['surface_grade'] is not None:
+                if int(row['surface_grade']) < 7:
+                    needing_replacement_count += 1
+            elif row['grading_status'] == 'Raw' and row['raw_condition'] in replacement_conditions:
+                needing_replacement_count += 1
+
             if row['grading_status'] == 'Graded' and row['surface_grade']:
                 total_score += row['surface_grade']
                 scored_cards += 1
@@ -560,7 +569,7 @@ def get_archetypes(binder_id: str, mode: str = "BINDER"):
 
         if avg_condition >= 8:
             condition_label = random.choice(
-                ["CONDITION SNOB (NM/M)", "LOUPE INSPECTOR"])
+                ["CONDITION SNOB (NM/NM+)", "LOUPE INSPECTOR"])
         elif avg_condition <= 5:
             condition_label = random.choice(
                 ["BINDER FILLER (LP/MP)", "WASHING MACHINE SURVIVOR"])
@@ -618,11 +627,89 @@ def get_archetypes(binder_id: str, mode: str = "BINDER"):
             "non_holo_pct": round(non_holo_pct, 1),
             "rarity_label": rarity_label,
             "condition_label": condition_label,
+            "needing_replacement_count": needing_replacement_count,
             "hunter_label": hunter_label,
             "most_expensive": most_expensive,
             "cheapest": cheapest
         }
 
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.get("/api/binder/{binder_id}/deepdive/replacements")
+def get_replacements_deepdive(binder_id: str, mode: str = "BINDER"):
+    """Cards below NM condition, ordered worst to best for binder replacement planning."""
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(
+            status_code=500, detail="Database connection failed")
+
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            "SELECT max_pokedex_id FROM binders WHERE binder_id = %s", (binder_id,))
+        binder_config = cur.fetchone()
+        if not binder_config:
+            raise HTTPException(status_code=404, detail="Binder not found")
+
+        max_dex = binder_config['max_pokedex_id']
+        cur.execute(
+            "SELECT set_id FROM binder_sets WHERE binder_id = %s", (binder_id,))
+        allowed_sets = tuple(row['set_id'] for row in cur.fetchall())
+
+        if not allowed_sets:
+            return {"count": 0, "cards": []}
+
+        display_filter = "AND a.is_active_display = TRUE" if mode == "BINDER" else ""
+
+        cur.execute(f"""
+            SELECT
+                c.printed_name,
+                p.pokemon_name,
+                a.raw_condition,
+                a.surface_grade,
+                a.grading_status,
+                e.item_amount as price_paid,
+                CASE
+                    WHEN a.grading_status::text = 'Graded' AND a.surface_grade IS NOT NULL
+                        THEN 'PSA ' || a.surface_grade::text
+                    ELSE a.raw_condition::text
+                END as condition_label,
+                CASE
+                    WHEN a.grading_status::text = 'Graded' AND a.surface_grade IS NOT NULL
+                        THEN a.surface_grade
+                    WHEN a.raw_condition::text = 'DMG' THEN 1
+                    WHEN a.raw_condition::text = 'HP' THEN 2
+                    WHEN a.raw_condition::text = 'MP' THEN 4
+                    WHEN a.raw_condition::text = 'LP' THEN 6
+                    ELSE 99
+                END as condition_score
+            FROM assets a
+            JOIN cards c ON a.definition_id = c.definition_id
+            JOIN pokedex p ON c.pokedex_number = p.pokedex_number
+            JOIN events e ON a.acquisition_event_id = e.event_id
+            WHERE p.pokedex_number <= %s
+              AND c.set_id IN %s
+              {display_filter}
+              AND (
+                    (a.grading_status::text = 'Raw' AND a.raw_condition::text IN ('LP', 'MP', 'HP', 'DMG'))
+                    OR
+                    (a.grading_status::text = 'Graded' AND a.surface_grade IS NOT NULL AND a.surface_grade < 7)
+                  )
+            ORDER BY condition_score ASC, e.item_amount DESC NULLS LAST, c.printed_name ASC
+        """, (max_dex, allowed_sets))
+
+        cards = cur.fetchall()
+        return {
+            "count": len(cards),
+            "cards": cards
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         cur.close()
         conn.close()
@@ -879,7 +966,7 @@ def get_lineage_stats(binder_id: str, mode: str = "BINDER"):
         """, (max_dex, allowed_sets))
         condition_data = cur.fetchall()
 
-        cond_weights = {'M': 10, 'NM': 8, 'LP': 6,
+        cond_weights = {'NM+': 10, 'NM': 8, 'LP': 6,
                         'MP': 4, 'HP': 2, 'DMG': 1, 'UKN': 5}
         total_score = 0
         weakest_score = 99
@@ -907,7 +994,7 @@ def get_lineage_stats(binder_id: str, mode: str = "BINDER"):
         if avg_binder_cond_num == 0:
             avg_cond_label = "UKN"
         elif avg_binder_cond_num >= 9.0:
-            avg_cond_label = "M"
+            avg_cond_label = "NM+"
         elif avg_binder_cond_num >= 7.0:
             avg_cond_label = "NM"
         elif avg_binder_cond_num >= 5.0:
@@ -2138,7 +2225,7 @@ def get_lineage_deepdive(binder_id: str, mode: str = "BINDER"):
        # 4. Overall Binder Condition (FIXED: Cast enums to text to bypass strict validation)
         cur.execute(f"""
             SELECT
-                COALESCE(SUM(CASE WHEN (grading_status::text = 'Graded' AND surface_grade >= 9) OR (grading_status::text = 'Raw' AND raw_condition::text = 'M') THEN 1 ELSE 0 END), 0) as cond_m,
+                COALESCE(SUM(CASE WHEN (grading_status::text = 'Graded' AND surface_grade >= 9) OR (grading_status::text = 'Raw' AND raw_condition::text = 'NM+') THEN 1 ELSE 0 END), 0) as cond_m,
                 COALESCE(SUM(CASE WHEN (grading_status::text = 'Graded' AND surface_grade IN (7,8)) OR (grading_status::text = 'Raw' AND raw_condition::text = 'NM') THEN 1 ELSE 0 END), 0) as cond_nm,
                 COALESCE(SUM(CASE WHEN (grading_status::text = 'Graded' AND surface_grade IN (5,6)) OR (grading_status::text = 'Raw' AND raw_condition::text = 'LP') THEN 1 ELSE 0 END), 0) as cond_lp,
                 COALESCE(SUM(CASE WHEN (grading_status::text = 'Graded' AND surface_grade IN (3,4)) OR (grading_status::text = 'Raw' AND raw_condition::text = 'MP') THEN 1 ELSE 0 END), 0) as cond_mp,
@@ -2165,7 +2252,7 @@ def get_lineage_deepdive(binder_id: str, mode: str = "BINDER"):
         """, (max_dex, allowed_sets))
         all_cards = cur.fetchall()
 
-        cond_weights = {'M': 10, 'NM': 8, 'LP': 6,
+        cond_weights = {'NM+': 10, 'NM': 8, 'LP': 6,
                         'MP': 4, 'HP': 2, 'DMG': 1, 'UKN': 5}
         blemish_card = None
         min_score = 99

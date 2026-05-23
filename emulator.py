@@ -64,7 +64,7 @@ def main():
     PAGE_STATS_POSITIONS = {
         # Added (c3, 210) to the end of Page 1
         1: [(c1, 60), (c1, 150), (c1, 210), (c2, 60), (c2, 150), (c2, 210), (c3, 60), (c3, 150), (c3, 210)],
-        2: [(c1, 60), (c1, 150), (c2, 60), (c2, 150), (c3, 60), (c3, 150)],
+        2: [(c1, 60), (c1, 150), (c1, 225), (c2, 60), (c2, 150), (c3, 60), (c3, 150)],
         3: [(c1, 60), (c1, 130), (c1, 210), (c2, 60), (c2, 130), (c2, 210), (c3, 60), (c3, 130), (c3, 210)],
         4: [(c1, 60), (c1, 130), (c1, 210), (c2, 60), (c2, 130), (c2, 210), (c3, 60), (c3, 130), (c3, 210)],
         5: [(c1, 60), (c1, 130), (c1, 210), (c2, 60), (c2, 130), (c2, 210), (c3, 60), (c3, 130)]
@@ -77,7 +77,7 @@ def main():
     STAT_TITLES = {
         # Added "COLLECTOR STATUS" to the end of Page 1
         1: ["TOTAL SPEND", "COST PER CARD", "LOGISTICS OVERHEAD", "TOTAL SOLD", "FORECASTED COMPLETION", "TRADES/GIFTS", "NET SPEND", "REMAINING TARGETS", "COLLECTOR STATUS"],
-        2: ["RARITY SKEW", "HOLO VS NON-HOLO", "CONDITION ARCHETYPE", "MOST EXPENSIVE HIT", "ACQUISITION STRATEGY", "CHEAPEST PURCHASE"],
+        2: ["RARITY SKEW", "HOLO VS NON-HOLO", "NEEDING REPLACEMENT", "CONDITION ARCHETYPE", "MOST EXPENSIVE HIT", "ACQUISITION STRATEGY", "CHEAPEST PURCHASE"],
         3: ["PLATFORM ARCHETYPE", "VOLUME LEADER", "SPEND LEADER", "SOURCING SPREAD", "MOST TRANSACTIONS WITH", "MOST FUNDING FOR", "MOST ACTIVE ON", "MEDIAN ASSET COST", "TOP 5 INDEX"],
         4: ["FULLY EVOLVED", "THE TEASE", "STRANDED ORPHANS", "SET ARCHETYPE", "DNA DISTRIBUTION", "ELEMENTAL SKEW", "OVERALL BINDER CONDITION", "THE BLEMISH", "PAGE DENSITY"],
         5: ["OLDEST MEMORY", "NEWEST MEMORY", "LONGEST STREAK", "MOST COLLECTED ARTIST", "COSMIC ANOMALIES", "DOCUMENTATION RATE", "LONGEST NOTE", "CURATOR'S LOG"]
@@ -1070,6 +1070,7 @@ def main():
                     if not anim_arch:
                         anim_arch = {
                             'holo': 0.0, 'non_holo': 0.0,
+                            'replace_count': 0.0,
                             'me_cost': 0.0, 'ch_cost': 0.0
                         }
 
@@ -1092,6 +1093,8 @@ def main():
                         anim_arch['holo'], arch_data.get('holo_pct', 0))
                     anim_arch['non_holo'] = ease_val(
                         anim_arch['non_holo'], arch_data.get('non_holo_pct', 0))
+                    anim_arch['replace_count'] = ease_val(
+                        anim_arch['replace_count'], arch_data.get('needing_replacement_count', 0))
 
                     if arch_data.get('most_expensive'):
                         anim_arch['me_cost'] = ease_val(
@@ -1113,6 +1116,11 @@ def main():
                         f"HOLO: {anim_arch['holo']:.1f}%", True, BLACK), (col1_x, 165))
                     screen.blit(title_font.render(
                         f"NON-HOLO: {anim_arch['non_holo']:.1f}%", True, BLACK), (col1_x, 185))
+
+                    screen.blit(micro_font.render(
+                        "NEEDING REPLACEMENT", True, GRAY), (col1_x, 225))
+                    screen.blit(title_font.render(
+                        f"{int(anim_arch['replace_count'])} CARDS", True, BLACK), (col1_x, 240))
 
                     # --- COLUMN 2: COLLECTOR TYPE (X = 360) ---
                     col2_x = 380
@@ -2109,10 +2117,94 @@ def main():
                         screen.blit(header_font.render(
                             f"{modal_data['non_collected']} / {modal_data['non_total']}", True, BLACK), (col3_x, modal_y + 155))
 
-                # --- NEW: CONDITION ARCHETYPE (Simple Screen) ---
+                # --- NEW: NEEDING REPLACEMENT (Condition Table) ---
                 elif stats_page == 2 and selected_stat_index == 2:
+                    if modal_data is None:
+                        screen.blit(title_font.render(
+                            "AUDITING CONDITION GAPS...", True, GRAY), (modal_x + 24, modal_y + 80))
+                        pygame.display.flip()
+                        modal_data = api_client.fetch_replacement_deepdive(binder_id, mode=current_mode) or {
+                            "error": True}
+
+                    if modal_data.get("error") or not modal_data.get("cards"):
+                        screen.blit(micro_font.render(
+                            "NO REPLACEMENTS NEEDED", True, GRAY), (modal_x + 24, modal_y + 80))
+                    else:
+                        cards = modal_data['cards']
+
+                        count_str = f"{modal_data.get('count', len(cards))} CARDS"
+                        count_surf = title_font.render(count_str, True, BLACK)
+                        screen.blit(count_surf, (modal_x + modal_w -
+                                    24 - count_surf.get_width(), modal_y + 24))
+
+                        list_y_start = modal_y + 60
+                        list_h = modal_h - 106
+                        row_h = 22
+                        visible_rows = list_h // row_h
+                        total_rows = len(cards)
+
+                        max_offset = max(0, total_rows - visible_rows)
+                        if modal_scroll_offset > max_offset:
+                            modal_scroll_offset = max_offset
+
+                        screen.blit(micro_font.render(
+                            "CARD NAME", True, GRAY), (modal_x + 24, list_y_start))
+                        screen.blit(micro_font.render(
+                            "CONDITION", True, GRAY), (modal_x + 500, list_y_start))
+                        screen.blit(micro_font.render(
+                            "PRICE PAID", True, GRAY), (modal_x + 690, list_y_start))
+
+                        pygame.draw.line(screen, GRAY, (modal_x + 16, list_y_start + 14),
+                                         (modal_x + modal_w - 30, list_y_start + 14), 1)
+
+                        clip_rect = pygame.Rect(
+                            modal_x + 16, list_y_start + 16, modal_w - 30, list_h)
+                        screen.set_clip(clip_rect)
+
+                        draw_y = list_y_start + 20
+                        for i in range(modal_scroll_offset, min(total_rows, modal_scroll_offset + visible_rows + 1)):
+                            row = cards[i]
+
+                            name = str(row.get('printed_name')
+                                       or row.get('pokemon_name') or "UNKNOWN").upper()[:42]
+                            condition = str(row.get('condition_label')
+                                            or row.get('raw_condition') or "UKN").upper()
+                            raw_price = float(row.get('price_paid') or 0)
+                            price = f"${raw_price:,.2f}"
+
+                            screen.blit(title_font.render(
+                                name, True, BLACK), (modal_x + 24, draw_y))
+                            screen.blit(title_font.render(
+                                condition, True, BLACK), (modal_x + 500, draw_y))
+                            screen.blit(title_font.render(
+                                price, True, BLACK), (modal_x + 690, draw_y))
+
+                            draw_y += row_h
+
+                        screen.set_clip(None)
+
+                        track_x = modal_x + modal_w - 20
+                        track_y = list_y_start + 16
+                        track_h = list_h
+                        pygame.draw.rect(
+                            screen, GRAY, (track_x, track_y, 4, track_h))
+
+                        if total_rows > visible_rows:
+                            thumb_h = max(
+                                20, int(track_h * (visible_rows / total_rows)))
+                            thumb_y = track_y + \
+                                ((modal_scroll_offset / max_offset)
+                                 * (track_h - thumb_h))
+                            pygame.draw.rect(
+                                screen, BLACK, (track_x - 2, thumb_y, 8, thumb_h))
+                        else:
+                            pygame.draw.rect(
+                                screen, BLACK, (track_x - 2, track_y, 8, track_h))
+
+                # --- NEW: CONDITION ARCHETYPE (Simple Screen) ---
+                elif stats_page == 2 and selected_stat_index == 3:
                     lbl = arch_data.get('condition_label', 'PRAGMATIC TRAINER')
-                    if lbl in ["CONDITION SNOB (NM/M)", "LOUPE INSPECTOR"]:
+                    if lbl in ["CONDITION SNOB (NM/NM+)", "LOUPE INSPECTOR"]:
                         exp = "Your assets have an average condition score of 8.0 (Near Mint) or higher. You clearly prioritize high-end quality over filling binder slots."
                     elif lbl in ["BINDER FILLER (LP/MP)", "WASHING MACHINE SURVIVOR"]:
                         exp = "Your assets have an average condition score of 5.0 (Moderately Played) or lower. You are optimizing for price and completion over condition."
@@ -2127,7 +2219,7 @@ def main():
                         screen, exp, title_font, BLACK, modal_x + 24, modal_y + 140, max_width=800)
 
                 # --- NEW: MOST EXPENSIVE HIT ---
-                elif stats_page == 2 and selected_stat_index == 3:
+                elif stats_page == 2 and selected_stat_index == 4:
                     if modal_data is None:
                         screen.blit(title_font.render(
                             "CALCULATING GRAIL METRICS...", True, GRAY), (modal_x + 24, modal_y + 80))
@@ -2178,7 +2270,7 @@ def main():
                             f"SECURED ON:   {date_str}", True, GRAY), (r_x, modal_y + 200))
 
                 # --- NEW: ACQUISITION STRATEGY (Simple Screen) ---
-                elif stats_page == 2 and selected_stat_index == 4:
+                elif stats_page == 2 and selected_stat_index == 5:
                     lbl = arch_data.get('hunter_label', 'STANDARD ENTHUSIAST')
                     if lbl in ["BULK HOARDER", "CARDBOARD RECYCLER"]:
                         exp = "You acquire over 3 cards per event at an average cost below $20. You prefer hunting bulk lots and consolidated collections."
@@ -2195,7 +2287,7 @@ def main():
                         screen, exp, title_font, BLACK, modal_x + 24, modal_y + 140, max_width=800)
 
                 # --- NEW: CHEAPEST PURCHASE ---
-                elif stats_page == 2 and selected_stat_index == 5:
+                elif stats_page == 2 and selected_stat_index == 6:
                     if modal_data is None:
                         screen.blit(title_font.render(
                             "CALCULATING THE STEAL INDEX...", True, GRAY), (modal_x + 24, modal_y + 80))
@@ -2944,7 +3036,7 @@ def main():
                             "PHYSICAL QUALITY DISTRIBUTION", True, GRAY), (modal_x + 24, modal_y + 60))
 
                         dist = modal_data['cond_dist']
-                        labels = ["M", "NM", "LP", "MP", "HP", "DMG"]
+                        labels = ["NM+", "NM", "LP", "MP", "HP", "DMG"]
                         keys = ["cond_m", "cond_nm", "cond_lp",
                                 "cond_mp", "cond_hp", "cond_dmg"]
                         counts = [dist[k] for k in keys]

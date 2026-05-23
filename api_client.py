@@ -179,6 +179,17 @@ def fetch_extremes_deepdive(binder_id, mode="BINDER"):
     return None
 
 
+def fetch_replacement_deepdive(binder_id, mode="BINDER"):
+    try:
+        url = f"{API_BASE_URL}/api/binder/{binder_id}/deepdive/replacements"
+        response = requests.get(url, params={"mode": mode}, timeout=2)
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        print(f"Error fetching replacement deepdive: {e}")
+    return None
+
+
 def fetch_sourcing_leaders_deepdive(binder_id, mode="BINDER"):
     try:
         url = f"{API_BASE_URL}/api/binder/{binder_id}/deepdive/sourcing_leaders"

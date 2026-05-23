@@ -1,6 +1,6 @@
 -- 0. Custom Types (Must be created before the tables that use them)
 CREATE TYPE grading_enum AS ENUM ('Graded', 'Raw');
-CREATE TYPE condition_enum AS ENUM ('M', 'NM', 'LP', 'MP', 'HP', 'DMG', 'UKN');
+CREATE TYPE condition_enum AS ENUM ('NM+', 'NM', 'LP', 'MP', 'HP', 'DMG', 'UKN');
 
 -- 1. Sets
 CREATE TABLE sets (

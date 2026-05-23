@@ -1,9 +1,11 @@
 import cv2
 import numpy as np
 import os
+import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEBUG_DIR = os.path.join(SCRIPT_DIR, "debug")
+JPEG_DIR = os.path.join(SCRIPT_DIR, "jpegs")
 
 if not os.path.exists(DEBUG_DIR):
     os.makedirs(DEBUG_DIR)
@@ -135,6 +137,7 @@ def isolate_card(image_path, prefix="front"):
 
     cv2.imwrite(os.path.join(
         DEBUG_DIR, f"{prefix}_05_warped_final.jpg"), warped)
+    print(f"  -> Isolated & warped {prefix}.")
 
     return warped, warped_mask
 
@@ -234,6 +237,7 @@ def find_border_width(strip_img, prefix="front", is_vertical=False, reverse=Fals
 
 
 def segment_edges(warped_img, prefix="front"):
+    print(f"\n--- Phase 5: Edge Segmentation ({prefix.upper()}) ---")
     img_h, img_w = warped_img.shape[:2]
     EDGE_MARGIN, SAFE_PAD = 23, 2
 
@@ -250,11 +254,13 @@ def segment_edges(warped_img, prefix="front"):
                   (img_w - EDGE_MARGIN, img_h - EDGE_MARGIN), (0, 0, 0), -1)
     cv2.imwrite(os.path.join(
         DEBUG_DIR, f"{prefix}_08_edge_segmentation.jpg"), debug_img)
+    print("  -> Extracted damage zones. Visual frame saved.")
 
     return edges
 
 
 def analyze_centering(regions, warped_img, prefix="front"):
+    print(f"\n--- Phase 4: Centering Analysis ({prefix.upper()}) ---")
     left_w = find_border_width(
         regions["left_strip"], prefix, is_vertical=False, reverse=False)
     right_w = find_border_width(
@@ -263,6 +269,9 @@ def analyze_centering(regions, warped_img, prefix="front"):
         regions["top_strip"], prefix, is_vertical=True, reverse=False)
     bottom_w = find_border_width(
         regions["bottom_strip"], prefix, is_vertical=True, reverse=True)
+
+    print(f"  Measured Left: {left_w}px | Right: {right_w}px")
+    print(f"  Measured Top:  {top_w}px | Bottom: {bottom_w}px")
 
     lr_total, tb_total = left_w + right_w, top_w + bottom_w
     lr_worst = max(left_w, right_w)
@@ -286,12 +295,18 @@ def analyze_centering(regions, warped_img, prefix="front"):
     else:
         grade = 5
 
+    print(f"  ---> Estimated PSA Centering Grade: {grade}")
+
     debug_img = warped_img.copy()
     img_h, img_w = debug_img.shape[:2]
     cv2.rectangle(debug_img, (left_w, top_w),
                   (img_w - right_w, img_h - bottom_w), (0, 255, 0), 2)
+    cx, cy = img_w // 2, img_h // 2
+    cv2.line(debug_img, (cx, 0), (cx, img_h), (255, 0, 0), 1)
+    cv2.line(debug_img, (0, cy), (img_w, cy), (255, 0, 0), 1)
     cv2.imwrite(os.path.join(
         DEBUG_DIR, f"{prefix}_07_laser_measurements.jpg"), debug_img)
+    print("  -> Visual measurements saved.")
 
     return {"grade": grade, "worst_ratio": worst_overall}
 
@@ -363,6 +378,7 @@ def extract_damage_masks(edges, warped_img, prefix="front"):
 
 
 def filter_true_damage(masks_0, masks_180):
+    print("  -> Cross-referencing 0-deg and 180-deg scans to eliminate glare...")
     true_masks = {}
     true_masks["top"] = cv2.bitwise_and(
         masks_0["top"], cv2.flip(masks_180["bottom"], -1))
@@ -376,6 +392,8 @@ def filter_true_damage(masks_0, masks_180):
 
 
 def evaluate_and_visualize_damage(true_masks, edges_0, warped_img_0, prefix="front"):
+    print(
+        f"\n--- Phase 6: True Edge Whitening Analysis ({prefix.upper()}) ---")
     damage_stats = {}
     debug_img = warped_img_0.copy()
     EDGE_MARGIN, SAFE_PAD = 23, 2
@@ -418,10 +436,19 @@ def evaluate_and_visualize_damage(true_masks, edges_0, warped_img_0, prefix="fro
     cv2.imwrite(os.path.join(
         DEBUG_DIR, f"{prefix}_09_true_whitening_damage.jpg"), debug_img)
 
+    overall_pct = (total_damage_px / total_edge_px) * \
+        100 if total_edge_px > 0 else 0
+    print(
+        f"  Overall True Edge Whitening: {overall_pct:.2f}% ({total_damage_px} pixels)")
+    for k, val in damage_stats.items():
+        print(f"    -> {k.capitalize()}: {val['percent']:.2f}%")
+
+    print("  -> True damage visualization saved.")
     return damage_stats
 
 
 def analyze_corners(warped_img, warped_mask, prefix="front"):
+    print(f"\n--- Phase 7: Corner Analysis ({prefix.upper()}) ---")
     CORNER_SIZE = 40
     img_h, img_w = warped_img.shape[:2]
 
@@ -485,14 +512,22 @@ def analyze_corners(warped_img, warped_mask, prefix="front"):
     cv2.imwrite(os.path.join(
         DEBUG_DIR, f"{prefix}_10_corner_analysis.jpg"), debug_canvas)
 
+    print("  -> Corner Roundness:")
+    for k, v in stats.items():
+        print(
+            f"     * {k.ljust(12)}: {v['missing_paper_area']}px | Whitening = {v['whitening_px']}px")
+
     return stats
 
 
 def process_side(path_0, path_180, side_name):
+    print(
+        f"\n================ PROCESSING {side_name.upper()} ================")
     result_0 = isolate_card(path_0, prefix=f"{side_name}_0deg")
     result_180 = isolate_card(path_180, prefix=f"{side_name}_180deg")
 
     if result_0 is None or result_180 is None:
+        print(f"❌ Failed to isolate {side_name}.")
         return None
 
     warped_0, warped_mask_0 = result_0
@@ -518,7 +553,6 @@ def process_side(path_0, path_180, side_name):
 
 
 def run_cv_pipeline(card_prefix, jpeg_dir):
-    """Orchestrates the CV pipeline using the newly ingested photos."""
     front_0_path = os.path.join(jpeg_dir, f"{card_prefix}-front.jpg")
     front_180_path = os.path.join(jpeg_dir, f"{card_prefix}-front-rev.jpg")
     back_0_path = os.path.join(jpeg_dir, f"{card_prefix}-back.jpg")
@@ -531,7 +565,6 @@ def run_cv_pipeline(card_prefix, jpeg_dir):
 
 
 def calculate_final_grade(front_data, back_data, surface_grade):
-    """Takes CV metrics and user-provided surface grade to calculate standard 4-subgrade output."""
     subgrades = {"centering": 10, "edges": 10,
                  "corners": 10, "surface": int(surface_grade)}
 
@@ -621,27 +654,61 @@ def calculate_final_grade(front_data, back_data, surface_grade):
     subgrades["corners"] = co_grade
 
     # --- 4. OVERALL GRADE CALCULATION ---
-    # Get the strict lowest subgrade as the baseline
     lowest_sub = min(subgrades.values())
-
-    # NEW RULE: Cap the maximum at +0.5 above the lowest,
-    # but ONLY if the card is high quality across the board.
-    # If you want NO BUMP AT ALL, just set final_grade = float(lowest_sub)
-
     final_grade = float(lowest_sub)
 
-    # Only allow a 0.5 bump if the card is a "strong" example of its lowest grade
-    # (e.g., if the lowest is 9, it needs 10s elsewhere to earn 9.5)
     if sum(subgrades.values()) >= (lowest_sub * 4) + 2:
         final_grade += 0.5
 
-    # Cap: Ensure it can never exceed the lowest subgrade + 0.5
-    # This keeps a 10/10/10/9 card at 9.5, but a 10/10/9/9 card at 9.0
     if final_grade > (lowest_sub + 0.5):
         final_grade = float(lowest_sub + 0.5)
 
-    # Pristine logic remains
     if final_grade == 10.0 and sum(subgrades.values()) == 40.0:
         final_grade = "10.0 (PRISTINE)"
 
     return subgrades, final_grade
+
+
+# =====================================================================
+# STANDALONE DEBUG EXECUTION
+# =====================================================================
+if __name__ == "__main__":
+    print("--- 🔍 SILPHDB CV DEBUGGER ---")
+
+    # Prompt for variables
+    card_prefix = input(
+        "Enter the card prefix (e.g., 'starmie', '11-BASE1-54-EN-UNL'): ").strip()
+    surface_input = input("Enter assumed human surface grade (1-10): ").strip()
+    surface_grade = int(surface_input) if surface_input.isdigit() else 9
+
+    # Check for files
+    missing = []
+    for side in ["front", "front-rev", "back", "back-rev"]:
+        path = os.path.join(JPEG_DIR, f"{card_prefix}-{side}.jpg")
+        if not os.path.exists(path):
+            missing.append(os.path.basename(path))
+
+    if missing:
+        print("\n❌ ERROR: Missing the following files in the 'jpegs' directory:")
+        for m in missing:
+            print(f"  - {m}")
+        sys.exit(1)
+
+    print(f"\n🚀 Booting Debug Pipeline for [{card_prefix}]...")
+    front_data, back_data = run_cv_pipeline(card_prefix, JPEG_DIR)
+
+    if front_data and back_data:
+        subgrades, final_grade = calculate_final_grade(
+            front_data, back_data, surface_grade)
+
+        print("\n" + "="*50)
+        print(f" 🏆 SILPHGRADE FINAL RESULT : {final_grade}")
+        print("-" * 50)
+        print(f"  SURFACE   : {subgrades['surface']}")
+        print(f"  CENTERING : {subgrades['centering']}")
+        print(f"  EDGES     : {subgrades['edges']}")
+        print(f"  CORNERS   : {subgrades['corners']}")
+        print("="*50 + "\n")
+        print(f"✅ Debug photos successfully written to: {DEBUG_DIR}")
+    else:
+        print("\n❌ Pipeline failed to isolate the card.")
